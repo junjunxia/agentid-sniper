@@ -704,10 +704,11 @@ async function autoMint(c, fname, W = WALLETS[0], val = 0n) {
   }
   const fp = await freeProgress(c);
   const agentsN = S.paid?.[c]?.agents || 0; /* 審查 11/1：只算 Agent ID 錢包 */ /* 使用者 10/31 19:45：免費也一樣——進度過 60% 才打；讀不到進度要 100 個以上錢包在打 */
-  if (fp != null && fp < GO_PCT) { /* 使用者 11/1 02:37：門檻 60% */ S.paid = S.paid || {}; if (!S.paid[c]) S.paid[c] = { at: Date.now(), name: '', done: {}, waitHot: 1 }; return `⏸ 進度 ${Math.floor(fp * 100)}%，還沒到 ${Math.round(GO_PCT * 100)}%，先追蹤，到了就打`; }
-  if (fp != null && agentsN < AG_MIN) { S.paid = S.paid || {}; if (!S.paid[c]) S.paid[c] = { at: Date.now(), name: '', done: {}, waitHot: 1 }; return `⏸ 進度 ${Math.floor(fp * 100)}% 夠了，但只有 ${agentsN} 個 Agent ID 錢包在打（要 ${AG_MIN} 個以上，防項目方自己灌進度），先追蹤`; }
-  if (fp == null && agentsN >= AG_MIN) { let tk = c; const tr0 = await call(c, '0xfc0c546a'); if (tr0 && tr0.length >= 66 && BigInt(tr0.slice(0, 66)) > 0n) tk = '0x' + tr0.slice(26, 66); if (await poolOpen(tk)) return '⏸ 讀不到進度、已經開池，不鑄造（鑄造通常比市價貴）'; }
-  if (fp == null && agentsN < AG_MIN) { S.paid = S.paid || {}; if (!S.paid[c]) S.paid[c] = { at: Date.now(), name: '', done: {}, waitHot: 1 }; return `⏸ 讀不到進度，目前 ${agentsN} 個錢包在打，要 ${AG_MIN} 個以上才打，先追蹤`; }
+  const freeRule = FREE_MINT && val === 0n, agMin = freeRule ? FREE_AG_MIN : AG_MIN; /* 使用者 11/1：完全免費的不看進度，20 個 Agent ID 錢包在打就打（80%／150 個是防灌進度騙付費的，免費項目拿不到我們的錢） */
+  if (!freeRule && fp != null && fp < GO_PCT) { /* 使用者 11/1 02:37：門檻 60% */ S.paid = S.paid || {}; if (!S.paid[c]) S.paid[c] = { at: Date.now(), name: '', done: {}, waitHot: 1 }; return `⏸ 進度 ${Math.floor(fp * 100)}%，還沒到 ${Math.round(GO_PCT * 100)}%，先追蹤，到了就打`; }
+  if (fp != null && agentsN < agMin) { S.paid = S.paid || {}; if (!S.paid[c]) S.paid[c] = { at: Date.now(), name: '', done: {}, waitHot: 1 }; return `⏸ 進度 ${Math.floor(fp * 100)}%，只有 ${agentsN} 個 Agent ID 錢包在打（要 ${agMin} 個以上），先追蹤`; }
+  if (fp == null && agentsN >= agMin) { let tk = c; const tr0 = await call(c, '0xfc0c546a'); if (tr0 && tr0.length >= 66 && BigInt(tr0.slice(0, 66)) > 0n) tk = '0x' + tr0.slice(26, 66); if (await poolOpen(tk)) return '⏸ 讀不到進度、已經開池，不鑄造（鑄造通常比市價貴）'; }
+  if (fp == null && agentsN < agMin) { S.paid = S.paid || {}; if (!S.paid[c]) S.paid[c] = { at: Date.now(), name: '', done: {}, waitHot: 1 }; return `⏸ 讀不到進度，目前 ${agentsN} 個錢包在打，要 ${agMin} 個以上才打，先追蹤`; }
   if (val > 0n && (Number(val) / 1e18) * ((await bnbUsd().catch(() => 0)) || 700) > PAID.maxUsd) return `⏸ 手續費超過 ${PAID.maxUsd}U 上限，沒有鑄`;
   let d = Object.fromEntries(CANDS)[fname]; if (d && /重播|熱門函式/.test(fname)) d = freshDeadline(d); /* 照抄的免費鑄造也換新期限 */
   const today = new Date().toDateString(); if (S.mintDay !== today) { S.mintDay = today; S.mintCount = 0; }
@@ -943,6 +944,7 @@ function noteDev(dep, c) { if (!dep) return; S.devs = S.devs || {}; const now = 
 const devKey = (x) => String(x.n || S.paid?.[x.c]?.name || x.c).toLowerCase().replace(/\s*\(.*?\)\s*/g, '').replace(/^\$/, '').trim();
 const DEV_MAX = 10;
 const AG_MIN = 150; /* 使用者 11/1 14:59：改成 150 個 */ /* 使用者 11/1 14:48：進度夠還不行，也要很多 Agent ID 錢包在打才打（防項目方自己灌進度） */
+const FREE_AG_MIN = 20; const freeHot = (P) => FREE_MINT && (P.agents || 0) >= FREE_AG_MIN; /* 免費鑄造的門檻；到了就要密集重試，不用等進度 */
 const GO_PCT = 0.8; /* 使用者 11/1 14:39：免費、付費都要進度超過 80% 才打（付費還要保本） */ // 使用者 11/1 14:21：同一個部署者 24 小時內部署 ≥10 個項目就不打（大量部署收手續費的那種）
 // ---------- 風控（使用者 11/1 14:46：防項目方換招一點點掏 BNB） ----------
 const RISK = { dayBnb: 0.01, freePerDay: 20, gasMax: 0.0003, gasMaxPaid: 0.001, revMax: 2 }; // 每錢包每天手續費＋gas 上限、免費每天最多幾個、單筆 gas 上限、同合約上鏈失敗幾次就停
@@ -1001,7 +1003,7 @@ async function heatOf(c, P) { // 算熱度：最近約 2.5 小時有幾個不同
   let agents = 0, burst = 0; for (const [a, bn] of last) if (agentCache.get(a)) { agents++; if (bn >= head - 400) burst++; }
   P.agents = Math.max(P.agents || 0, agents); P.burst = burst; P.heatAt = Date.now();
 }
-const hk = (P) => (P.heatAt || 0) + (heatTier(P) >= 1 || (P.progress || 0) >= 0.2 ? 0 : 540e3);
+const hk = (P) => (P.heatAt || 0) + (heatTier(P) >= 1 || (P.progress || 0) >= 0.2 || (FREE_MINT && P.mint?.feeBnb === 0) ? 0 : 540e3); /* 免費可鑄的要盡快知道有沒有 20 個錢包 */
 async function heatWatch() { // 背景：替追蹤中的付費項目算熱度，看不懂的合約順便學別人的打法（不拖慢 15 秒的快速檢查）
   const ents = Object.entries(S.paid || {}).filter(([c, P]) => !INFRA.has(c) && !P.unmintable && (P.progress || 0) < 0.999 && !WALLETS.every((W) => P.done?.[W.name]))
     .sort((a, b) => ((b[1].needLearn && (b[1].progress || 0) >= 0.45) - (a[1].needLearn && (a[1].progress || 0) >= 0.45)) || hk(a[1]) - hk(b[1])).slice(0, 8); // 快滿或很熱的約每分鐘更新，其他約 10 分鐘；快到門檻又還不會打的排最前面（除錯 11/1：BNBCAT 57% 一直排不到）
@@ -1071,7 +1073,8 @@ async function paidLoop(mode = 'all', shard = null) {
   // 進度 ≥40% 的（快滿的）每輪都看，不跟其他一百多個排隊；其餘輪流，每輪補到 16 個
   const all = Object.entries(S.paid);
   
-  const hotP = all.filter(([c, P]) => FORCE.has(c) || (((P.progress || 0) >= 0.45 || (fpCache.get(c)?.p || 0) >= 0.45 || (!(P.progress > 0) && Math.max(P.agents || 0, HOT.get(c)?.from.size || 0) >= 70)) && (P.progress || 0) < 0.999 && !P.unmintable)).filter(([c, P]) => !WALLETS.every((W) => P.done[W.name])).sort((a, b) => (b[1].progress || 0) - (a[1].progress || 0) || (b[1].agents || 0) - (a[1].agents || 0)).slice(0, 12); /* 使用者 10/31 20:29：快速檢查只看快到門檻的（進度 ≥45%，或讀不到進度但已 70 個以上錢包），最多 12 個，避免越來越慢 */
+  const freeNow = (P) => (freeHot(P) && P.mint?.feeBnb === 0 ? 1 : 0); /* 免費可鑄且夠 20 個錢包的排最前面，不被高進度的付費項目擠掉 */
+  const hotP = all.filter(([c, P]) => FORCE.has(c) || ((freeNow(P) || (P.progress || 0) >= 0.45 || (fpCache.get(c)?.p || 0) >= 0.45 || (!(P.progress > 0) && Math.max(P.agents || 0, HOT.get(c)?.from.size || 0) >= 70)) && (P.progress || 0) < 0.999 && !P.unmintable)).filter(([c, P]) => !WALLETS.every((W) => P.done[W.name])).sort((a, b) => freeNow(b[1]) - freeNow(a[1]) || (b[1].progress || 0) - (a[1].progress || 0) || (b[1].agents || 0) - (a[1].agents || 0)).slice(0, 12); /* 使用者 10/31 20:29：快速檢查只看快到門檻的（進度 ≥45%，或讀不到進度但已 70 個以上錢包），最多 12 個，避免越來越慢 */
   // 快速檢查（mode='hot'）每 15 秒只看快滿／很熱的；一般檢查（mode='rest'）另外在背景約每分鐘輪流看其他的，互不拖慢
   const rest = mode === 'hot' ? [] : all.filter((e) => !hotP.includes(e)).sort((a, b) => (a[1].lastTry || 0) - (b[1].lastTry || 0)).slice(0, 16);
   const ents = mode === 'rest' ? rest : mode === 'hot' ? (shard == null ? hotP : hotP.filter((e, i) => i % 3 === shard)) : hotP.concat(rest); /* 快速檢查分 3 組同時跑（審查修正：一個一個查要 1 分多鐘） */
@@ -1083,8 +1086,8 @@ async function paidLoop(mode = 'all', shard = null) {
     if (Date.now() - P.at > PAID.maxAgeH * 3600e3) { delete S.paid[c]; continue; }
     const code = await codeOf(c);
     // 發現時還沒開的「免費」鑄造：之後每分鐘重試，一開就自動打
-    const fcd = (P.progress || 0) >= GO_PCT - 0.02 || Math.max(P.agents || 0, HOT.get(c)?.from.size || 0) >= 70 ? 20e3 : 120e3; /* 除錯 11/1：快到 60% 的免費項目改成 20 秒重試一次（之前固定 2 分鐘，0xa69adf 在這 2 分鐘內從 63% 賣完） */
-    if (Date.now() - (P.freeTryAt || 0) > fcd && !((P.progress || 0) > 0 && P.progress < GO_PCT - 0.02 && Date.now() - (P.freeTryAt || 0) < 600e3)) { /* 優化 11/1：進度讀得到且還沒到 58% 的免費項目，不用每 2 分鐘模擬一次（一晚 850 次白跑、還害節點限流）；改成 10 分鐘看一次，快到門檻才密集重試 */ P.freeTryAt = Date.now(); for (const W of WALLETS) { if (P.done[W.name]) continue; { const ff = await findFree(W.addr, c, code); if (MONITOR_ONLY) { noteMintable(P, ff); if (!(FREE_MINT && ff?.v === 0n)) continue; } if (!ff || P.qAt?.[W.name] > Date.now() - (fcd - 5e3)) continue; P.qAt = P.qAt || {}; P.qAt[W.name] = Date.now(); queueMint(c, ff.n, W, ff.v); log(`[${W.name}] 之前還沒開的 ${P.name || c} 現在開了（免費），排入鑄造`); } } }
+    const fcd = freeHot(P) || (P.progress || 0) >= GO_PCT - 0.02 || Math.max(P.agents || 0, HOT.get(c)?.from.size || 0) >= 70 ? 20e3 : 120e3; /* 除錯 11/1：快到 60% 的免費項目改成 20 秒重試一次（之前固定 2 分鐘，0xa69adf 在這 2 分鐘內從 63% 賣完） */
+    if (Date.now() - (P.freeTryAt || 0) > fcd && !(!freeHot(P) && (P.progress || 0) > 0 && P.progress < GO_PCT - 0.02 && Date.now() - (P.freeTryAt || 0) < 600e3)) { /* 優化 11/1：進度讀得到且還沒到 58% 的免費項目，不用每 2 分鐘模擬一次（一晚 850 次白跑、還害節點限流）；改成 10 分鐘看一次，快到門檻才密集重試 */ P.freeTryAt = Date.now(); for (const W of WALLETS) { if (P.done[W.name]) continue; { const ff = await findFree(W.addr, c, code); if (MONITOR_ONLY) { noteMintable(P, ff); if (!(FREE_MINT && ff?.v === 0n)) continue; } if (!ff || P.qAt?.[W.name] > Date.now() - (fcd - 5e3)) continue; P.qAt = P.qAt || {}; P.qAt[W.name] = Date.now(); queueMint(c, ff.n, W, ff.v); log(`[${W.name}] 之前還沒開的 ${P.name || c} 現在開了（免費），排入鑄造`); } } }
     let kind = code.includes('e38fd349') && code.includes('68bce8cd') ? 'bnb' : code.includes('725c4058') && code.includes('94bf804d') ? 'usdt' : null;
     let unit = 0n; // 一般 NFT：mint(數量) 付「單價 × 數量」BNB（像 Sentient Syndicate 的 PRICE）
     if (!kind && code.includes('a0712d68')) for (const sel of ['8d859f3e', 'a035b1fe', '6817c76c', '13faede6', '817b1cd2']) { if (!code.includes(sel)) continue; const r = await cc(c, '0x' + sel); if (r && r.length >= 66 && BigInt(r.slice(0, 66)) > 0n) { unit = BigInt(r.slice(0, 66)); kind = 'gen'; break; } }
@@ -1604,7 +1607,7 @@ async function monitorWrite() {
     const dup = TOKENS.concat(S.dyn || []).some((x) => (!x.only || x.only === W.addr) && x.sym === t.sym && x.addr !== t.addr), st = S.tokens[(W.addr === ME ? t.sym : W.name + ':' + t.sym) + (dup ? '#' + t.addr.slice(2, 8) : '')];
     if (!st || BigInt(st.lastBal || '0') === 0n) continue; const cost = (t.only || t.both || W.addr === ME) ? t.cost || 0 : 0;
     positions.push({ wallet: W.name, symbol: t.sym, token: t.addr, costUsd: cost || null, valueUsd: st.curV != null ? +st.curV.toFixed(2) : null, multiple: cost && st.curV != null ? +(st.curV / cost).toFixed(2) : null, poolOpen: !!st.pair, autoSell: !t.hold && st.stage !== 9, sellRule: t.hold ? 'hold' : cost > 0 ? 'paid' : 'free', sellFails: st.sellFail || 0 }); }
-  const out = { mode: MONITOR_ONLY ? 'monitor-only' : 'auto-mint', freeMint: FREE_MINT, updatedAt: iso(now), scanLagBlocks: S.scanLag ?? null, thresholds: { progress: GO_PCT, agentWallets: AG_MIN }, summary: { tracked: rows.length, ready: rows.filter((r) => r.status === 'ready').length, soldout: rows.filter((r) => r.status === 'soldout').length, positions: positions.length }, projects: rows.slice(0, 100), positions, recentSells: (S.trades || []).slice(-50), events: S.monEvents.slice(-100) };
+  const out = { mode: MONITOR_ONLY ? 'monitor-only' : 'auto-mint', freeMint: FREE_MINT, updatedAt: iso(now), scanLagBlocks: S.scanLag ?? null, thresholds: { progress: GO_PCT, agentWallets: AG_MIN, freeMintAgentWallets: FREE_AG_MIN }, summary: { tracked: rows.length, ready: rows.filter((r) => r.status === 'ready').length, soldout: rows.filter((r) => r.status === 'soldout').length, positions: positions.length }, projects: rows.slice(0, 100), positions, recentSells: (S.trades || []).slice(-50), events: S.monEvents.slice(-100) };
   const f = join(DIR, 'data', 'monitor.json'); writeFileSync(f + '.tmp', JSON.stringify(out, null, 1)); renameSync(f + '.tmp', f);
 }
 

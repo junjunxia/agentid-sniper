@@ -10,10 +10,10 @@
 
 默认**不会自动买入**，只监控新项目，并保留自动卖出；只有完全免费（0 BNB）的项目会自动铸造。下文关于付费铸造、`forceMint`、`/update` 的说明只在 `config.json` 明确设置 `"monitorOnly": false` 时才适用。
 
-- **免费铸造**：要求进度 ≥ 80% 且至少 150 个 Agent ID 钱包在打（读不到进度时，要至少 150 个钱包且还没开池）。每个钱包每天最多 20 个项目、手续费加 gas 最多 0.01 BNB，每个项目最多 10 份。要付任何手续费的项目只监控不打。不想打免费项目就设置 `"freeMint": false`。
+- **免费铸造**：不看进度，至少 20 个 Agent ID 钱包在打就打（读不到进度时，还要求没开池）。每个钱包每天最多 20 个项目、手续费加 gas 最多 0.01 BNB，每个项目最多 10 份。要付任何手续费的项目只监控不打。不想打免费项目就设置 `"freeMint": false`。
 
 - **监控结果**：每分钟写入 `data/monitor.json`，供 Grokbot 等外部程序定时读取。`updatedAt` 太旧说明程序可能没在运行。
-  - `projects`：追踪中的项目（最多 100 个）。`status` 为 `watching`、`ready`（达到进度 80% 且 150 个 Agent ID 钱包，或读不到进度但钱包数够）或 `soldout`。
+  - `projects`：追踪中的项目（最多 100 个）。`status` 为 `watching`、`ready`（达到进度 80% 且 150 个 Agent ID 钱包，或读不到进度但钱包数够，这是付费项目的参考线；免费铸造的门槛见上）或 `soldout`。
   - `risk`：只提供资料，不拦截。`refundFnFound` 只表示合约里有退款函数，不保证真能退款。值为 `null` 表示还没查或没查到。
   - `positions`、`recentSells`：当前持仓和最近卖出。
   - `events`：最近的 `new`、`ready`、`soldout`、`minted` 事件，可按 `at` 判断哪些是新的。铸造完成后项目会移出 `projects`，代币进入 `positions`。
