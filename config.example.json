@@ -1,4 +1,6 @@
 {
+  "monitorOnly": true,
+  "freeMint": true,
   "wallets": [
     {
       "name": "mywallet.ai",
